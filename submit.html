@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+.inline {
+  display: inline;
+}
+
+.link-button {
+  background: blue;
+  box-shadow: 0 5px 0 darkred;
+  border: none;
+  color: white;
+  padding: 1em 1.5em;
+  text-transform: uppercase;
+  position: relative;
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 1em;
+  font-family: serif;
+}
+.link-button:focus {
+  outline: none;
+}
+.link-button:active {
+  color:red;
+}
+.link-button:hover{ background-color: #ce0606;
+ }
+ .link-button:active {
+  box-shadow: none;
+  top: 5px;
+}
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+.hide { position:absolute; top:-1px; left:-1px; width:1px; height:1px; }
+</style>
+</head>
+
+<body>
+<iframe name="hiddenFrame" class="hide"></iframe>
+
+<form method="post" action="https://io.adafruit.com/api/v2/webhooks/feed/nnLmBsGppht3HdYqHJ4mufYNKqGx" class="inline" target="hiddenFrame">
+ 
+  <button type="submit" name="value" value="OnAir" class="link-button">
+    On Air
+  </button>
+    <button type="submit" name="value" value="OffAir" class="link-button">
+    Off Air
+  </button>
+</form>
+</body>
+</html>
