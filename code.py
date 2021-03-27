@@ -1,15 +1,23 @@
-# ON AIR sign for YouTube livestreaming
+# ON AIR sign for Royals
 # Runs on Airlift Metro M4 with 64x32 RGB Matrix display & shield
 
 import time
 import board
 import displayio
+from digitalio import DigitalInOut
+import busio
+import neopixel
 import adafruit_display_text.label
 from adafruit_display_shapes.rect import Rect
 from adafruit_display_shapes.polygon import Polygon
 from adafruit_bitmap_font import bitmap_font
-from adafruit_matrixportal.network import Network
+# from adafruit_matrixportal.network import Network
 from adafruit_matrixportal.matrix import Matrix
+import adafruit_esp32spi.adafruit_esp32spi_socket as socket
+from adafruit_esp32spi import adafruit_esp32spi
+from adafruit_esp32spi import adafruit_esp32spi_wifimanager
+import adafruit_minimqtt.adafruit_minimqtt as MQTT
+from adafruit_io.adafruit_io import IO_MQTT
 
 # Get wifi details and more from a secrets.py file
 try:
@@ -18,6 +26,18 @@ except ImportError:
     print("WiFi secrets are kept in secrets.py, please add them there!")
     raise
 
+esp32_cs = DigitalInOut(board.ESP_CS)
+esp32_ready = DigitalInOut(board.ESP_BUSY)
+esp32_reset = DigitalInOut(board.ESP_RESET)
+
+spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
+esp = adafruit_esp32spi.ESP_SPIcontrol(spi, esp32_cs, esp32_ready, esp32_reset)
+
+status_light = neopixel.NeoPixel(
+    board.NEOPIXEL, 1, brightness=0.2
+)
+
+wifi = adafruit_esp32spi_wifimanager.ESPSPI_WiFiManager(esp, secrets, status_light)
 # Set up where we'll be fetching data from
 # Adafruit YouTube channel:
 FEED_ID = (
@@ -25,6 +45,7 @@ FEED_ID = (
    "royalsonair"
 )
 # adaFruit_token="aio_fGcU92S58NEZ8pdntqhTIlVFyr7z"
+
 
 DATA_SOURCE = (
     "https://io.adafruit.com/api/v2/bigredreevz/feeds?x-aio-key="
@@ -46,7 +67,7 @@ OPERATING_TIME_END = "23:59:59"  # what hour to stop checking
 # --- Display setup ---
 matrix = Matrix()
 display = matrix.display
-network = Network(status_neopixel=board.NEOPIXEL, debug=False)
+## network = Network(status_neopixel=board.NEOPIXEL, debug=False) ## OLD LOGIG FOR STATUS
 
 # --- Drawing setup ---
 # Create a Group
@@ -203,27 +224,103 @@ def get_status():
 
     return False
 
+def connected(client):
+    # Connected function will be called when the client is connected to Adafruit IO.
+    # This is a good place to subscribe to feed changes.  The client parameter
+    # passed to this function is the Adafruit IO MQTT client so you can make
+    # calls against it easily.
+    print("Connected to Adafruit IO!")
+
+def subscribe(client, userdata, topic, granted_qos):
+    # This method is called when the client subscribes to a new feed.
+    print("Listening for changes on relay feed...{0}".format(userdata))
+
+
+def unsubscribe(client, userdata, topic, pid):
+    # This method is called when the client unsubscribes from a feed.
+    print("Unsubscribed from {0} with PID {1}".format(topic, pid))
+
+def disconnected(client):
+    # Disconnected function will be called when the client disconnects.
+    print("Disconnected from Adafruit IO!")
+
+def on_message(client, feed_id, payload):
+    # Message function will be called when a subscribed feed has a new value.
+    # The feed_id parameter identifies the feed, and the payload parameter has
+    # the new value.
+    print("Feed {0} received new value: {1}".format(feed_id, payload))
+    if payload == "OnAir":
+        print("OnAir - turning sign to On Air")
+        update_text(1)
+    elif payload == "OffAir":
+        print("OffAir - turning sign to Off Air")
+        update_text(0)
+    else:
+        print("Unexpected value received on relay feed.")
+
+def on_relay_msg(client, topic, message):
+    # Method called whenever user/feeds/relay has a new value
+    if message == "OnAir":
+        print("OnAir - turning sign to On Air")
+        update_text(1)
+    elif message == "OffAir":
+        print("OffAir - turning sign to Off Air")
+        update_text(0)
+    else:
+        print("Unexpected value received on relay feed.")
+ 
+ 
 
 # Synchronize Board's clock to Internet
-network.get_local_time()
-mode_state = get_status()
-update_text(mode_state)
-last_check = None
+#### OLD LOGIC TO GET STATUS ####
+# network.get_local_time()
+# mode_state = get_status()
+# update_text(mode_state)
+# last_check = None
+
+### END OLD LOGIC ####
+
+print("Connecting to WiFi...")
+wifi.connect()
+print("Connected!")
+
+# Initialize MQTT interface with the esp interface
+MQTT.set_socket(socket, esp)
+# Initialize a new MQTT Client object
+mqtt_client = MQTT.MQTT(
+    broker="io.adafruit.com",
+    username=secrets["aio_username"],
+    password=secrets["aio_key"],
+)
+
+# Initialize an Adafruit IO MQTT Client
+io = IO_MQTT(mqtt_client)
+
+# Connect the callback methods defined above to Adafruit IO
+io.on_connect = connected
+io.on_disconnect = disconnected
+io.on_subscribe = subscribe
+io.on_unsubscribe = unsubscribe
+io.on_message = on_message
+# Connect to Adafruit IO
+print("Connecting to Adafruit IO...")
+io.connect()
+
+# Set up a message handler for the relay feed
+io.add_feed_callback("RoyalsOnAir", on_relay_msg) ## not needed now may enable later for future product
+# Subscribe to all messages on the relay feed
+io.subscribe("RoyalsOnAir") 
+# Get the most recent value on the relay feed
+io.get("RoyalsOnAir")
 
 
+# Start a blocking loop to check for new messages
 while True:
-    if last_check is None or time.monotonic() > last_check + UPDATE_DELAY:
-        try:
-            status = get_status()
-            if status:
-                if mode_state == 0:  # state has changed, toggle it
-                    update_text(1)
-                    mode_state = 1
-            else:
-                if mode_state == 1:
-                    update_text(0)
-                    mode_state = 0
-            print("On Air:", status)
-            last_check = time.monotonic()
-        except RuntimeError as e:
-            print("Some error occured, retrying! -", e)
+    try:
+        io.loop()
+    except (ValueError, RuntimeError) as e:
+        print("Failed to get data, retrying\n", e)
+        wifi.reset()
+        io.reconnect()
+        continue
+    time.sleep(0.5)
